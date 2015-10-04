@@ -24,7 +24,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 	let drawLayer = CALayer()
 	var raster : CGImageRef?
 	
-	let bitlen = 0.200
+	let bitlen = 0.2
 	
 	// 0: waiting to receive starting indicator
 	// 1: getting width and height
@@ -160,31 +160,43 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 						if time - offStart > bitlen * 7 {
 							mode = 1
 							startTime = startTime + time
+							offStart = bitlen
+							onStart = bitlen
 							curFrame = 0
 						}
 					}
 				}
 				prev = false
 			}
-		case 1:
-			let frame = Int(time / bitlen)
-			print("\(time) \(frame)")
+		case 1, 2:
 			var bit: Int
 			if (Double(Int64(sum) * prestartCount) > 2 * Double(prestartSum)) {
 				bit = 1
+				if !prev {
+										print("\(time) \(offStart)")
+					bitset((time - offStart), v: 0)
+					onStart = time
+				}
+				prev = true
 			} else {
 				bit = 0
-			}
-			print("\(frame) \(time) \(bit)")
-			if frame != curFrame {
-				if(frameSum * 2 >= frameNum) {
-					newBit(1)
-				} else {
-					newBit(0)
+				if prev {
+					print("\(time) \(onStart)")
+					bitset((time - onStart), v: 1)
+					offStart = time
 				}
+				prev = false
 			}
 		default:
-			print("oh")
+			print(":(")
+		}
+	}
+	
+	func bitset(a: Double, v: Int) {
+		let len = Int(round(a / bitlen))
+		print("\(len) bits of \(v)")
+		for _ in 1...len {
+			newBit(v)
 		}
 	}
 	
@@ -198,15 +210,16 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 				return
 			}
 			if curFrame > 16 {
-				height |= (v << (curFrame - 16))
+				height += (v << (curFrame - 16))
 			} else {
-				width |= (v << curFrame)
+				width += (v << curFrame)
 			}
 		case 2:
 			return
 		default:
 			return
 		}
+		curFrame++
 	}
 	
 	override func didReceiveMemoryWarning() {
@@ -214,6 +227,42 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 		// Dispose of any resources that can be recreated.
 	}
 
+	internal struct PixelData {
+		var a:UInt8 = 255
+		var r:UInt8
+		var g:UInt8
+		var b:UInt8
+	}
+	
+	private let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
+	private let bitmapInfo:CGBitmapInfo = CGBitmapInfo(CGImageAlphaInfo.PremultipliedFirst.rawValue)
+	
+	func imageFromARGB32Bitmap(pixels:[PixelData], width:UInt, height:UInt)->UIImage {
+		let bitsPerComponent:UInt = 8
+		let bitsPerPixel:UInt = 32
+		
+		assert(pixels.count == Int(width * height))
+		
+		var data = pixels // Copy to mutable []
+		let providerRef = CGDataProviderCreateWithCFData(
+			NSData(bytes: &data, length: data.count * sizeof(PixelData))
+		)
+		
+		let cgim = CGImageCreate(
+			Int(width),
+			Int(height),
+			Int(bitsPerComponent),
+			Int(bitsPerPixel),
+			width * UInt(sizeof(PixelData)),
+			rgbColorSpace,
+			bitmapInfo,
+			providerRef,
+			nil,
+			true,
+			CGColorRenderingIntent.RenderingIntentDefault
+		)
+		return UIImage(CGImage: cgim)
+	}
 
 }
 
