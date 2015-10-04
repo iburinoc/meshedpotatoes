@@ -12,6 +12,13 @@ import CoreFoundation
 
 class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
 	
+	internal struct PixelData {
+		var a:UInt8 = 255
+		var r:UInt8
+		var g:UInt8
+		var b:UInt8
+	}
+	
 	let captureSession = AVCaptureSession()
 	
 	var captureDevice : AVCaptureDevice?
@@ -22,7 +29,8 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 	var startTime = CFAbsoluteTimeGetCurrent()
 	
 	let drawLayer = CALayer()
-	var raster : CGImageRef?
+	
+	let d = Drawer()
 	
 	let bitlen = 0.2
 	
@@ -43,9 +51,13 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 	var width: Int = 0
 	var height: Int = 0
 	
-	var curFrame = -1
+	var curFrame = 0
 	var frameSum = 0
 	var frameNum = 0
+	
+	var curCol: Int = 0
+	
+	var imgView: UIImageView?
 	
 	override func viewDidLoad() {
 		super.viewDidLoad()
@@ -91,6 +103,11 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 		self.view.layer.addSublayer(previewLayer!)
 		previewLayer?.frame = self.view.layer.frame
 		
+		imgView = UIImageView()
+		self.view.addSubview(d)
+		imgView!.frame = self.view.frame
+		d.frame = self.view.frame
+		
 		videoOutput = AVCaptureVideoDataOutput()
 		videoOutput!.setSampleBufferDelegate(self, queue: dispatch_queue_create("sample buffer delegate", DISPATCH_QUEUE_SERIAL))
 		videoOutput!.videoSettings = [kCVPixelBufferPixelFormatTypeKey: Int(kCVPixelFormatType_32BGRA)]
@@ -101,6 +118,51 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 		}
 		
 		captureSession.startRunning()
+//		mode = 1
+		/*bitset(bitlen * 3, v: 0)
+		bitset(bitlen * 1, v: 1)
+		bitset(bitlen * 15, v: 0)
+		bitset(bitlen * 1, v: 1)
+		bitset(bitlen * 12, v: 0)
+		bitset(bitlen*12, v: 1)
+		bitset(bitlen*24, v: 0)
+		bitset(bitlen*24, v: 1)
+		bitset(bitlen*6, v: 0)
+		bitset(bitlen*12, v: 1)
+		bitset(bitlen*6, v: 0)
+		bitset(bitlen*24, v: 1)
+		bitset(bitlen*6, v: 0)
+		bitset(bitlen*12, v: 1)
+		bitset(bitlen*6, v: 0)
+		bitset(bitlen*18, v: 1)
+		bitset(bitlen*36, v: 0)
+		bitset(bitlen*12, v: 1)
+		bitset(bitlen*25, v: 0)
+		bitset(bitlen*1, v: 1)
+		bitset(bitlen*1, v: 0)
+		bitset(bitlen*1, v: 1)
+		bitset(bitlen*1, v: 0)
+		bitset(bitlen*1, v: 1)
+		bitset(bitlen*6, v: 0)
+		bitset(bitlen*12, v: 1)
+		bitset(bitlen*25, v: 0)
+		bitset(bitlen*1, v: 1)
+		bitset(bitlen*1, v: 0)
+		bitset(bitlen*1, v: 1)
+		bitset(bitlen*1, v: 0)
+		bitset(bitlen*1, v: 1)
+		bitset(bitlen*6, v: 0)
+		bitset(bitlen*12, v: 1)
+		bitset(bitlen*25, v: 0)
+		bitset(bitlen*1, v: 1)
+		bitset(bitlen*1, v: 0)
+		bitset(bitlen*1, v: 1)
+		bitset(bitlen*1, v: 0)
+		bitset(bitlen*1, v: 1)
+		bitset(bitlen*6, v: 0)
+		bitset(bitlen*12, v: 1)
+		bitset(bitlen*36, v: 0)
+		bitset(bitlen*6, v: 1)*/
 	}
 
 	func captureOutput(captureOutput: AVCaptureOutput!, didOutputSampleBuffer sampleBuffer: CMSampleBuffer!, fromConnection connection: AVCaptureConnection!) {
@@ -188,7 +250,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 				prev = false
 			}
 		default:
-			print(":(")
+			mode = 3
 		}
 	}
 	
@@ -206,6 +268,10 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 			if(curFrame >= 32) {
 				mode = 2
 				print("\(width) \(height)")
+				d.width = width
+				d.height = height
+				let blank = PixelData(a: 0, r: 0, g: 0, b: 0)
+				d.raster = [PixelData](count: Int(width * height), repeatedValue: blank)
 				newBit(v)
 				return
 			}
@@ -215,27 +281,36 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 				width += (v << curFrame)
 			}
 		case 2:
-			return
+			curCol += (v << (5 - ((curFrame - 32) % 6)))
+			if((curFrame - 32) % 6 == 5) {
+				print("data: \(curCol)")
+				let pix = PixelData(a: 255, r: (UInt8(Int(0xc0) & (curCol << 2))), g: (UInt8(Int(0xc0) & (curCol << 4))), b: (UInt8(Int(0xff) & (curCol << 6))))
+				print("\(pix.r) \(pix.g) \(pix.b)")
+				let idx = (curFrame - 32) / 6
+				d.raster[idx] = pix
+				
+//				imgView!.image = imageFromARGB32Bitmap(d.raster, width: UInt(width), height: UInt(height))
+//				imgView!.setNeedsDisplay()
+				d.setNeedsDisplay()
+				
+				curCol = 0
+			}
 		default:
 			return
 		}
 		curFrame++
+		if curFrame == width * height * 6 + 32 {
+			mode = 3
+		}
 	}
 	
 	override func didReceiveMemoryWarning() {
 		super.didReceiveMemoryWarning()
 		// Dispose of any resources that can be recreated.
 	}
-
-	internal struct PixelData {
-		var a:UInt8 = 255
-		var r:UInt8
-		var g:UInt8
-		var b:UInt8
-	}
 	
 	private let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
-	private let bitmapInfo:CGBitmapInfo = CGBitmapInfo(CGImageAlphaInfo.PremultipliedFirst.rawValue)
+	private let bitmapInfo:CGBitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.PremultipliedFirst.rawValue)
 	
 	func imageFromARGB32Bitmap(pixels:[PixelData], width:UInt, height:UInt)->UIImage {
 		let bitsPerComponent:UInt = 8
@@ -253,7 +328,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 			Int(height),
 			Int(bitsPerComponent),
 			Int(bitsPerPixel),
-			width * UInt(sizeof(PixelData)),
+			Int(width) * Int(sizeof(PixelData)),
 			rgbColorSpace,
 			bitmapInfo,
 			providerRef,
@@ -261,7 +336,34 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 			true,
 			CGColorRenderingIntent.RenderingIntentDefault
 		)
-		return UIImage(CGImage: cgim)
+		return UIImage(CGImage: cgim!)
+	}
+	
+	internal class Drawer : UIView {
+		var raster: [PixelData] = [PixelData](count: 0, repeatedValue: PixelData(a: 0, r: 0, g: 0, b: 0))
+		var width: Int = 0
+		var height: Int = 0
+		override func drawRect(rect: CGRect) {
+			if width == 0 {
+				return
+			}
+			let context = UIGraphicsGetCurrentContext()
+			let colorSpace = CGColorSpaceCreateDeviceRGB()
+			CGContextSetFillColorSpace(context, colorSpace)
+			CGContextSetFillColorWithColor(context, col(PixelData(a: 255, r: 255, g: 0, b: 0)))
+			//CGContextFillRect(context, self.bounds)
+			var ratio = min(Int(self.bounds.width) / width, Int(self.bounds.height) / height)
+			for i in 0...(height - 1) {
+				for j in 0...(width - 1) {
+					CGContextSetFillColorWithColor(context, col(raster[i * width + j]))
+					CGContextFillRect(context, CGRectMake(CGFloat(j * ratio), CGFloat(i * ratio), CGFloat(ratio), CGFloat(ratio)))
+				}
+			}
+		}
+		
+		func col(a: PixelData) -> CGColor {
+			return UIColor(red: CGFloat(Double(a.r) / Double(256)), green: CGFloat(Double(a.g) / Double(256)), blue: CGFloat(Double(a.b) / Double(256)), alpha: CGFloat(Double(a.a) / Double(256))).CGColor
+		}
 	}
 
 }
